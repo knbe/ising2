@@ -1,20 +1,35 @@
-#@views point(n, lattice) = lattice[2n-1:2n]
-@views lpoint(n, lattice) = lattice[n,:]
+# ising 2d.
+
+const global J::Int64 = 1
+
+mutable struct Lattice2D
+	L::Int64
+	N::Int64
+	S::Vector{Int64}
+	coords::Matrix{Float64}
+end
+
+@enum LatticeType begin
+	square_random
+	triangular_random
+end
+
+function Lattice2D(;L::Int64=40, ltype::LatticeType=square_random)
+	N, S, coords = initialise(L, Int(ltype))
+	return Lattice2D(L, N, S, coords)
+end
+
+@views lpoint(n,lattice) = lattice[n,:]
 
 function clear_screen()
 	print("\033c")
 end
 
-
-function show_spins(S::Vector{Int64}, L::Int64)
+function show_spins(lattice::Lattice2D)
 	n = 1
-	for j = 1:L
-		for i = 1:L
-			#c = ""
-			#S[n] < 0 ? c = "░░" : c = "██"
-			S[n] < 0 ? print("░░") : print("██")
-			#@printf "%s" c
-			#print(c)
+	for j = 1:lattice.L
+		for i = 1:lattice.L
+			lattice.S[n] < 0 ? print("░░") : print("██")
 			n += 1
 		end
 		#@printf "\n"
@@ -25,128 +40,130 @@ function show_spins(S::Vector{Int64}, L::Int64)
 
 end
 
-function print_params(T, J, N)
-	L = Int64(sqrt(N))
-	println("T=$(round(T, digits=4)), J=$J, L=$L, N=$N")
+function print_params(lattice::Lattice2D, T::Float64)
+	println(
+		"T=$(round(T, digits=4)), \
+		L=$(lattice.L), \
+		N=$(lattice.N)"
+	)
 end
 
-function initialise!(S::Vector{Int64}, N::Int64, lattice::Matrix{Float64})
-	L = Int(floor(sqrt(N)))
-	for i = 1:N
-		if rand() < 0.5
-			S[i] = 1
-		else
-			S[i] = -1
+function initialise(L::Int64, ltype::Int64)
+	N = L^2
+	S = ones(Int64, N)
+	coords = zeros(N, 2)
+
+	# square lattice, random positions
+	if ltype == 0
+		for i = 1:N
+			if rand() < 0.5
+				S[i] = 1
+			else
+				S[i] = -1
+			end
+		end
+
+		n = 1
+		for j = 1:L
+			for i = 1:L
+				coords[n,:] = [float(i), float(j)]
+				n += 1
+			end
 		end
 	end
 
-	#println(S)
-
-	n = 1
-	for j = 1:L
-		for i = 1:L
-			lattice[n,:] = [float(i), float(j)]
-			n += 1
-		end
-	end
-
-	show_spins(S, L)
+	return N, S, coords
 
 end
 
-function get_ssflip_dE(n::Int64, s::Vector{Int64}, lattice::Vector{Float64})
+# returns indices of the 4 nearest neighbours of the nth particle
+function get_nearest_neighbours(l::Lattice2D, n::Int64)
+	coords = lpoint(n, l.coords)
 
+	(coords[2]-1) < 1 ? n_up = n + l.L*(l.L-1) : n_up = n - l.L
+	(coords[2]+1) > l.L ? n_dn = n - l.L*(l.L-1) : n_dn = n + l.L
+	(coords[1]-1) < 1 ? n_lf = n + (l.L-1) : n_lf = n - 1
+	(coords[1]+1) > l.L ? n_rt = n - (l.L-1) : n_rt = n + 1
+
+	return n_up, n_dn, n_lf, n_rt
 end
 
-function get_nearest_neighbours(N::Int64, L::Int64, S, lattice::Matrix{Float64}, n::Int64)
-	ij = lattice[n,:]
-
-	(ij[2]-1) < 1 ? n_up = n + L*(L-1) : n_up = n - L
-	(ij[2]+1) > L ? n_dn = n - L*(L-1) : n_dn = n + L
-	(ij[1]-1) < 1 ? n_lf = n + (L-1) : n_lf = n - 1
-	(ij[1]+1) > L ? n_rt = n - (L-1) : n_rt = n + 1
-	
+function show_nearest_neighbours(n::Int64, lattice::Lattice2D)
+	n_up, n_dn, n_lf, n_rt = get_nearest_neighbours(l, n)
 
 	clear_screen()
 	println("showing particle:")
 	print("\033[0;31m")
-	println("\tn=$n, coords=$(lattice[n,:])")
+	println("\tn=$n, coords=$(l.coords[n,:])")
 	print("\033[0;37m")
 	println("and nearest neighbours:")
 	print("\033[1;31m")
-	println("\tn_up=$(n_up), coords=$(lattice[n_up,:])")
-	println("\tn_dn=$(n_dn), coords=$(lattice[n_dn,:])")
-	println("\tn_lf=$(n_lf), coords=$(lattice[n_lf,:])")
-	println("\tn_rt=$(n_rt), coords=$(lattice[n_rt,:])")
+	println("\tn_up=$(n_up), coords=$(l.coords[n_up,:])")
+	println("\tn_dn=$(n_dn), coords=$(l.coords[n_dn,:])")
+	println("\tn_lf=$(n_lf), coords=$(l.coords[n_lf,:])")
+	println("\tn_rt=$(n_rt), coords=$(l.coords[n_rt,:])")
 
 	print("\033[0;37m")
-	num = 1
-	for j = 1:L
-		for i = 1:L
-			#c = ""
-			#S[n] < 0 ? c = "░░" : c = "██"
-
-			if num == n
+	index = 1
+	for j = 1:lattice.L
+		for i = 1:lattice.L
+			if index == n
 				print("\033[0;31m")
-			elseif num == n_up || num == n_dn || num == n_lf || num == n_rt
+			elseif index == n_up || index == n_dn || 
+				index == n_lf || index == n_rt
 				print("\033[1;31m")
 			end
-#			elseif num == n_up
-#				print("\033[0;35m")
-#			elseif num == n_down
-#				print("\033[0;36m")
-#			elseif num == n_left
-#				print("\033[1;33m")
-#			elseif num == n_right
-#				print("\033[1;32m")
-#			end
-			S[num] < 0 ? print("▓▓") : print("██")
-			#@printf "%s" c
-			#print(c)
-			num += 1
+			l.S[n] < 0 ? print("▓▓") : print("██")
+			index += 1
 			print("\033[0;37m")
 		end
-		#@printf "\n"
 		print("\n")
 	end
-	#@printf "\n"
 	print("\n")
 end
 
-function show_nearest_neighbours(num::Int64)
-	N::Int64 = 400
-	L::Int64 = 20
-	S::Vector{Int64} = ones(Int64, N)
-	lattice = zeros(N,2)
-	initialise!(S, N, lattice)
+function get_ssflip_dE(lattice::Lattice2D, n::Int64)
+	n_up, n_dn, n_lf, n_rt = get_nearest_neighbours(lattice, n)
 
-	#show_spins(S,L)
-	get_nearest_neighbours(N, L, S, lattice, num)
+	return 2 * J * lattice.S[n] * (lattice.S[n_up] +
+		lattice.S[n_dn] + lattice.S[n_lf] + lattice.S[n_rt])
 end
 
-function sweep()
-	T = 5.0
-	Tstep = 0.01
-	numSteps = Int64(floor(T/Tstep))
-	J = 1
+function sweep(lattice::Lattice2D; T₀::Float64=5.0)
+	T = T₀
+	Tstep = 0.005
 
-	N::Int64 = 1600
-	S::Vector{Int64} = ones(Int64, N)
-	lattice = zeros(N,2)
-
-	numMCIterations::Int64 = 1000000
+	numMCIterations = 1000000
+	numTsteps = Int(T/Tstep)
 
 	clear_screen()
-	print_params(T, J, N)
-	initialise!(S, N, lattice)
+	print_params(lattice, T)
+	show_spins(lattice)
 	sleep(5)
 
-	#while T > 0.0
-		#for iteration in 1:numMCIterations
-		for iteration in 1:1
-			n = rand(1:N)
+	count = 0
+	while T > 0.0
+		for iteration in 1:numMCIterations
+			n = rand(1:lattice.N)
 
-			dE = get_ssflip_dE(n, S, lattice)
+			dE = get_ssflip_dE(lattice, n)
+
+			if dE < 0
+				lattice.S[n] *= -1
+			else
+				if rand() < exp(-dE / T)
+					lattice.S[n] *= -1
+				end
+			end
 		end
-	#end
+
+		if count % 2 == 0
+			clear_screen()
+			print_params(lattice, T)
+			show_spins(lattice)
+		end
+
+		T -= Tstep
+		count += 1
+	end
 end
